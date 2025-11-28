@@ -1,0 +1,23 @@
+{
+  "id": "db561e2b-6cb4-45a6-a825-defcac52b747",
+  "config": {
+    "seriesName": "Stranger Things",
+    "season": 1,
+    "language": "es-ES",
+    "mode": "A",
+    "targetLength": "short",
+    "llmProvider": "openai"
+  },
+  "status": "pending",
+  "progress": {
+    "stage": "pending",
+    "stageProgress": 0,
+    "currentStep": "Waiting to start",
+    "completedStages": [],
+    "errors": []
+  },
+  "srtFiles": [],
+  "videoFiles": [],
+  "createdAt": "2025-11-28T16:41:22.725Z",
+  "updatedAt": "2025-11-28T16:41:22.725Z"
+}
