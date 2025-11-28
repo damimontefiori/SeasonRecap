@@ -23,6 +23,30 @@ const LANGUAGES = [
   { code: 'ko-KR', label: 'Korean' },
 ];
 
+// Azure Speech TTS Voices - organized by style
+const TTS_VOICES = [
+  // Recommended for dubbing/narration (Latin American Spanish)
+  { code: 'es-MX-JorgeNeural', label: '🎬 Jorge (México) - Voz de doblaje profesional', recommended: true },
+  { code: 'es-MX-DaliaNeural', label: '🎬 Dalia (México) - Voz femenina profesional', recommended: true },
+  // Argentine voices
+  { code: 'es-AR-TomasNeural', label: '🇦🇷 Tomás (Argentina) - Masculina' },
+  { code: 'es-AR-ElenaNeural', label: '🇦🇷 Elena (Argentina) - Femenina' },
+  // Colombian voices (neutral)
+  { code: 'es-CO-GonzaloNeural', label: '🇨🇴 Gonzalo (Colombia) - Masculina neutral' },
+  { code: 'es-CO-SalomeNeural', label: '🇨🇴 Salomé (Colombia) - Femenina neutral' },
+  // Chilean voices
+  { code: 'es-CL-CatalinaNeural', label: '🇨🇱 Catalina (Chile) - Femenina' },
+  { code: 'es-CL-LorenzoNeural', label: '🇨🇱 Lorenzo (Chile) - Masculina' },
+  // Spanish (Spain) voices
+  { code: 'es-ES-AlvaroNeural', label: '🇪🇸 Álvaro (España) - Masculina' },
+  { code: 'es-ES-ElviraNeural', label: '🇪🇸 Elvira (España) - Femenina' },
+  // English voices
+  { code: 'en-US-GuyNeural', label: '🇺🇸 Guy (US) - Male narrator' },
+  { code: 'en-US-JennyNeural', label: '🇺🇸 Jenny (US) - Female narrator' },
+  { code: 'en-GB-RyanNeural', label: '🇬🇧 Ryan (UK) - Male narrator' },
+  { code: 'en-GB-SoniaNeural', label: '🇬🇧 Sonia (UK) - Female narrator' },
+];
+
 export function CreateJob() {
   const navigate = useNavigate();
   const [step, setStep] = useState<'config' | 'upload' | 'review'>('config');
@@ -38,6 +62,7 @@ export function CreateJob() {
   const [targetLength, setTargetLength] = useState<TargetLength>('medium');
   const [llmProvider, setLlmProvider] = useState<LLMProvider>('openai');
   const [videoDirectory, setVideoDirectory] = useState('');
+  const [ttsVoice, setTtsVoice] = useState('es-MX-JorgeNeural'); // Default: Mexican narrator voice
 
   // Files
   const [srtFiles, setSrtFiles] = useState<FileList | null>(null);
@@ -66,6 +91,7 @@ export function CreateJob() {
         targetLength,
         llmProvider,
         videoDirectory: videoDirectory.trim(),
+        ttsVoice: mode === 'B' ? ttsVoice : undefined,
       };
 
       const job = await createJob(config);
@@ -223,6 +249,51 @@ export function CreateJob() {
               </button>
             </div>
           </div>
+
+          {/* Voice selection - only visible in Mode B */}
+          {mode === 'B' && (
+            <div className="form-group voice-selector-group">
+              <label htmlFor="ttsVoice">🎙️ Narrator Voice</label>
+              <select
+                id="ttsVoice"
+                value={ttsVoice}
+                onChange={(e) => setTtsVoice(e.target.value)}
+                className="voice-select"
+              >
+                <optgroup label="⭐ Recommended for Latin American dubbing">
+                  {TTS_VOICES.filter(v => v.recommended).map((voice) => (
+                    <option key={voice.code} value={voice.code}>
+                      {voice.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="🌎 Latin American Spanish">
+                  {TTS_VOICES.filter(v => !v.recommended && v.code.startsWith('es-') && !v.code.startsWith('es-ES')).map((voice) => (
+                    <option key={voice.code} value={voice.code}>
+                      {voice.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="🇪🇸 Spanish (Spain)">
+                  {TTS_VOICES.filter(v => v.code.startsWith('es-ES')).map((voice) => (
+                    <option key={voice.code} value={voice.code}>
+                      {voice.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="🇺🇸🇬🇧 English">
+                  {TTS_VOICES.filter(v => v.code.startsWith('en-')).map((voice) => (
+                    <option key={voice.code} value={voice.code}>
+                      {voice.label}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+              <small className="form-hint">
+                This voice will be used to narrate the summary. Mexican voices are commonly used in Latin American dubbing.
+              </small>
+            </div>
+          )}
 
           <div className="form-group">
             <label>Target Length</label>

@@ -430,7 +430,12 @@ export class SummaryPipeline {
     const outputDir = this.store.getOutputDir(job.id);
     const audioPath = path.join(outputDir, 'narrative.mp3');
 
-    const synthesizer = new AzureSpeechSynthesizer();
+    // Use voice from job config if specified, otherwise default from .env
+    const synthesizer = new AzureSpeechSynthesizer(
+      job.config.ttsVoice ? { voice: job.config.ttsVoice } : undefined
+    );
+    
+    this.store.addLog(job.id, 'info', `Using TTS voice: ${job.config.ttsVoice || 'default from config'}`, 'generating_tts');
     await synthesizer.synthesizeToFile(narrative, audioPath);
 
     await this.store.updateProgress(job.id, 'Voiceover generated', 100);

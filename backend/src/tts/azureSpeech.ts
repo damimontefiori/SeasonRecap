@@ -1,7 +1,12 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import { config } from '../config';
+
+// Azure Speech has a limit of 10 minutes (600,000ms) per request
+// To be safe, we target ~5 minutes of audio per chunk (~2000 characters at normal speed)
+const MAX_CHARS_PER_CHUNK = 2000;
 
 /**
  * Configuration for Azure Speech synthesis
@@ -53,13 +58,113 @@ export class AzureSpeechSynthesizer {
   }
 
   /**
-   * Synthesizes text to speech and saves to a file
-   * @param text - Text to synthesize
-   * @param outputPath - Path to save the audio file (WAV format)
-   * @returns Synthesis result with file path and duration
+   * Splits text into chunks that won't exceed Azure's time limit
+   * Tries to split on sentence boundaries for natural speech
    */
-  async synthesizeToFile(text: string, outputPath: string): Promise<SynthesisResult> {
-    // Ensure output directory exists
+  private splitTextIntoChunks(text: string): string[] {
+    if (text.length <= MAX_CHARS_PER_CHUNK) {
+      return [text];
+    }
+
+    const chunks: string[] = [];
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    let currentChunk = '';
+
+    for (const sentence of sentences) {
+      // If a single sentence is too long, split it on commas or words
+      if (sentence.length > MAX_CHARS_PER_CHUNK) {
+        // Flush current chunk first
+        if (currentChunk) {
+          chunks.push(currentChunk.trim());
+          currentChunk = '';
+        }
+        
+        // Split long sentence on commas or spaces
+        const parts = sentence.split(/(?<=,)\s*/);
+        for (const part of parts) {
+          if ((currentChunk + ' ' + part).length > MAX_CHARS_PER_CHUNK) {
+            if (currentChunk) {
+              chunks.push(currentChunk.trim());
+            }
+            currentChunk = part;
+          } else {
+            currentChunk += (currentChunk ? ' ' : '') + part;
+          }
+        }
+      } else if ((currentChunk + ' ' + sentence).length > MAX_CHARS_PER_CHUNK) {
+        // Adding this sentence would exceed the limit
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+      } else {
+        currentChunk += (currentChunk ? ' ' : '') + sentence;
+      }
+    }
+
+    // Don't forget the last chunk
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Concatenates multiple MP3 files using FFmpeg
+   */
+  private async concatenateAudioFiles(audioPaths: string[], outputPath: string): Promise<void> {
+    const concatFilePath = path.join(path.dirname(outputPath), 'audio_concat_list.txt');
+    const concatContent = audioPaths.map((p) => {
+      const absolutePath = path.resolve(p).replace(/\\/g, '/');
+      return `file '${absolutePath.replace(/'/g, "'\\''")}'`;
+    }).join('\n');
+
+    fs.writeFileSync(concatFilePath, concatContent, 'utf-8');
+
+    const ffmpegPath = config.ffmpegPath || 'ffmpeg';
+    
+    return new Promise((resolve, reject) => {
+      const args = [
+        '-y',
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', concatFilePath,
+        '-c', 'copy',
+        outputPath,
+      ];
+
+      const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+      let stderr = '';
+      proc.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        // Clean up concat file
+        if (fs.existsSync(concatFilePath)) {
+          fs.unlinkSync(concatFilePath);
+        }
+
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`FFmpeg audio concat failed with code ${code}: ${stderr}`));
+        }
+      });
+
+      proc.on('error', (err) => {
+        if (fs.existsSync(concatFilePath)) {
+          fs.unlinkSync(concatFilePath);
+        }
+        reject(new Error(`Failed to start FFmpeg: ${err.message}`));
+      });
+    });
+  }
+
+  /**
+   * Synthesizes a single chunk of text to a file
+   */
+  private async synthesizeChunkToFile(text: string, outputPath: string): Promise<SynthesisResult> {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -73,7 +178,6 @@ export class AzureSpeechSynthesizer {
     speechConfig.speechSynthesisOutputFormat =
       sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3;
 
-    // Use file output
     const audioConfig = sdk.AudioConfig.fromAudioFileOutput(outputPath);
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
@@ -85,7 +189,7 @@ export class AzureSpeechSynthesizer {
             synthesizer.close();
             resolve({
               audioFilePath: outputPath,
-              durationMs: result.audioDuration / 10000, // Convert from 100-nanosecond units to ms
+              durationMs: result.audioDuration / 10000,
             });
           } else {
             synthesizer.close();
@@ -102,6 +206,60 @@ export class AzureSpeechSynthesizer {
         }
       );
     });
+  }
+
+  /**
+   * Synthesizes text to speech and saves to a file
+   * Automatically splits long text into chunks to avoid Azure's 10-minute limit
+   * @param text - Text to synthesize
+   * @param outputPath - Path to save the audio file (MP3 format)
+   * @returns Synthesis result with file path and duration
+   */
+  async synthesizeToFile(text: string, outputPath: string): Promise<SynthesisResult> {
+    const dir = path.dirname(outputPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const chunks = this.splitTextIntoChunks(text);
+    console.log(`TTS: Splitting text into ${chunks.length} chunk(s) (${text.length} total chars)`);
+
+    // If only one chunk, synthesize directly
+    if (chunks.length === 1) {
+      return this.synthesizeChunkToFile(chunks[0]!, outputPath);
+    }
+
+    // Multiple chunks: synthesize each, then concatenate
+    const chunkPaths: string[] = [];
+    let totalDurationMs = 0;
+
+    try {
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i]!;
+        const chunkPath = path.join(dir, `tts_chunk_${i.toString().padStart(3, '0')}.mp3`);
+        chunkPaths.push(chunkPath);
+
+        console.log(`TTS: Synthesizing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
+        const result = await this.synthesizeChunkToFile(chunk, chunkPath);
+        totalDurationMs += result.durationMs;
+      }
+
+      // Concatenate all chunks
+      console.log(`TTS: Concatenating ${chunkPaths.length} audio chunks...`);
+      await this.concatenateAudioFiles(chunkPaths, outputPath);
+
+      return {
+        audioFilePath: outputPath,
+        durationMs: totalDurationMs,
+      };
+    } finally {
+      // Clean up chunk files
+      for (const chunkPath of chunkPaths) {
+        if (fs.existsSync(chunkPath)) {
+          fs.unlinkSync(chunkPath);
+        }
+      }
+    }
   }
 
   /**

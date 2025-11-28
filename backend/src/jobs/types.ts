@@ -51,6 +51,8 @@ export interface JobConfig {
   llmProvider: LLMProviderType;
   /** Local directory path where video files are located */
   videoDirectory?: string;
+  /** TTS voice for Mode B (e.g., 'es-MX-JorgeNeural') */
+  ttsVoice?: string;
 }
 
 /**

@@ -33,6 +33,8 @@ export interface JobConfig {
   llmProvider: LLMProvider;
   /** Local directory path where video files are located (server-side path) */
   videoDirectory?: string;
+  /** Azure Speech voice for TTS (Mode B only) */
+  ttsVoice?: string;
 }
 
 export interface LogEntry {
