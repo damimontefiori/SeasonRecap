@@ -9,6 +9,7 @@ import { config } from '../config';
 export function createLLMProvider(providerType: LLMProviderType): LLMProvider {
   switch (providerType) {
     case 'openai':
+      console.log(`Creating OpenAI provider with API key: ${config.openaiApiKey ? config.openaiApiKey.substring(0, 10) + '...' : 'MISSING!'}`);
       return new OpenAILLMProvider({
         type: 'openai',
         apiKey: config.openaiApiKey,

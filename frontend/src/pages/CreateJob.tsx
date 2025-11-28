@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   createJob,
   uploadSrtFiles,
-  uploadVideoFiles,
   startJob,
   JobConfig,
   SummaryMode,
@@ -38,16 +37,20 @@ export function CreateJob() {
   const [mode, setMode] = useState<SummaryMode>('A');
   const [targetLength, setTargetLength] = useState<TargetLength>('medium');
   const [llmProvider, setLlmProvider] = useState<LLMProvider>('openai');
+  const [videoDirectory, setVideoDirectory] = useState('');
 
   // Files
   const [srtFiles, setSrtFiles] = useState<FileList | null>(null);
-  const [videoFiles, setVideoFiles] = useState<FileList | null>(null);
   const [uploadedSrt, setUploadedSrt] = useState<number>(0);
-  const [uploadedVideo, setUploadedVideo] = useState<number>(0);
 
   const handleCreateJob = async () => {
     if (!seriesName.trim()) {
       setError('Series name is required');
+      return;
+    }
+
+    if (!videoDirectory.trim()) {
+      setError('Video directory path is required');
       return;
     }
 
@@ -62,13 +65,16 @@ export function CreateJob() {
         mode,
         targetLength,
         llmProvider,
+        videoDirectory: videoDirectory.trim(),
       };
 
       const job = await createJob(config);
       setJobId(job.id);
       setStep('upload');
-    } catch (err) {
-      setError('Failed to create job');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Failed to create job';
+      setError(errorMessage);
       console.error(err);
     } finally {
       setLoading(false);
@@ -81,22 +87,14 @@ export function CreateJob() {
       setError('Please select at least one SRT file');
       return;
     }
-    if (!videoFiles || videoFiles.length === 0) {
-      setError('Please select at least one video file');
-      return;
-    }
 
     setLoading(true);
     setError(null);
 
     try {
-      // Upload SRT files
+      // Upload SRT files only - videos are read from local directory
       await uploadSrtFiles(jobId, srtFiles);
       setUploadedSrt(srtFiles.length);
-
-      // Upload video files
-      await uploadVideoFiles(jobId, videoFiles);
-      setUploadedVideo(videoFiles.length);
 
       setStep('review');
     } catch (err) {
@@ -245,6 +243,21 @@ export function CreateJob() {
             </div>
           </div>
 
+          <div className="form-group">
+            <label htmlFor="videoDirectory">Video Directory (Local Path) *</label>
+            <input
+              type="text"
+              id="videoDirectory"
+              value={videoDirectory}
+              onChange={(e) => setVideoDirectory(e.target.value)}
+              placeholder="e.g., D:\Videos\BreakingBad\Season1"
+            />
+            <small className="form-hint">
+              Enter the full path to the folder containing the video files on the server.
+              Video files should have episode identifiers in their names (e.g., S01E01).
+            </small>
+          </div>
+
           <div className="form-actions">
             <button
               className="btn btn-primary"
@@ -260,9 +273,10 @@ export function CreateJob() {
       {/* Step 2: Upload Files */}
       {step === 'upload' && (
         <div className="card form-card">
-          <h2>Upload Files</h2>
+          <h2>Upload SRT Files</h2>
           <p className="upload-description">
-            Upload the SRT subtitle files and video files for all episodes in the season.
+            Upload the SRT subtitle files for all episodes in the season.
+            Video files will be read from: <strong>{videoDirectory}</strong>
           </p>
 
           <div className="form-group">
@@ -280,21 +294,6 @@ export function CreateJob() {
             )}
           </div>
 
-          <div className="form-group">
-            <label htmlFor="videoFiles">Video Files *</label>
-            <input
-              type="file"
-              id="videoFiles"
-              accept=".mp4,.mkv,.avi,.mov,.wmv,.webm"
-              multiple
-              onChange={(e) => setVideoFiles(e.target.files)}
-              className="file-input"
-            />
-            {videoFiles && (
-              <span className="file-count">{videoFiles.length} file(s) selected</span>
-            )}
-          </div>
-
           <div className="form-actions">
             <button className="btn btn-secondary" onClick={() => setStep('config')}>
               Back
@@ -304,7 +303,7 @@ export function CreateJob() {
               onClick={handleUploadFiles}
               disabled={loading}
             >
-              {loading ? 'Uploading...' : 'Upload Files'}
+              {loading ? 'Uploading...' : 'Upload SRT Files'}
             </button>
           </div>
         </div>
@@ -339,8 +338,8 @@ export function CreateJob() {
               <span className="review-value">{uploadedSrt} uploaded</span>
             </div>
             <div className="review-item">
-              <span className="review-label">Video Files:</span>
-              <span className="review-value">{uploadedVideo} uploaded</span>
+              <span className="review-label">Video Directory:</span>
+              <span className="review-value">{videoDirectory}</span>
             </div>
           </div>
 

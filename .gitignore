@@ -14,9 +14,9 @@ build/
 .env.*.local
 
 # Data directories (uploads and outputs)
-data/uploads/
-data/outputs/
-data/jobs/
+data/
+backend/data/
+frontend/data/
 
 # Logs
 logs/
@@ -43,3 +43,18 @@ coverage/
 *.tmp
 *.temp
 .cache/
+
+# Video and audio files (too large for git)
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+*.mp3
+*.wav
+*.aac
+
+# FFmpeg temp files
+concat_list.txt

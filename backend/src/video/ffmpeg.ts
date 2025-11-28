@@ -86,7 +86,11 @@ export class FFmpegProcessor {
   async concatenateClips(clipPaths: string[], outputPath: string): Promise<void> {
     // Create a temporary concat file
     const concatFilePath = path.join(path.dirname(outputPath), 'concat_list.txt');
-    const concatContent = clipPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+    // Use absolute paths to avoid path resolution issues
+    const concatContent = clipPaths.map((p) => {
+      const absolutePath = path.resolve(p).replace(/\\/g, '/');
+      return `file '${absolutePath.replace(/'/g, "'\\''")}'`;
+    }).join('\n');
 
     fs.writeFileSync(concatFilePath, concatContent, 'utf-8');
 
@@ -120,7 +124,11 @@ export class FFmpegProcessor {
    */
   async concatenateClipsWithReencode(clipPaths: string[], outputPath: string): Promise<void> {
     const concatFilePath = path.join(path.dirname(outputPath), 'concat_list.txt');
-    const concatContent = clipPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+    // Use absolute paths to avoid path resolution issues
+    const concatContent = clipPaths.map((p) => {
+      const absolutePath = path.resolve(p).replace(/\\/g, '/');
+      return `file '${absolutePath.replace(/'/g, "'\\''")}'`;
+    }).join('\n');
 
     fs.writeFileSync(concatFilePath, concatContent, 'utf-8');
 

@@ -35,6 +35,8 @@ export class SummaryPipeline {
     }
 
     try {
+      await this.store.addLog(jobId, 'info', '🚀 Starting summary pipeline');
+      
       // Stage 1: Validate inputs
       await this.validateInputs(job);
 
@@ -91,11 +93,16 @@ export class SummaryPipeline {
       job.keyMoments = moments;
       job.narrativeOutline = narrativeOutline;
       job.narrative = narrative;
-
-      await this.store.updateStatus(jobId, 'completed', 'Summary generation complete', 100);
+      
+      // First save the job with all outputs
       await this.store.save(job);
+      
+      // Then update status (this also saves)
+      await this.store.addLog(jobId, 'success', '✅ Pipeline completed successfully!');
+      await this.store.updateStatus(jobId, 'completed', 'Summary generation complete', 100);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`Pipeline failed for job ${jobId}:`, error);
       await this.store.setFailed(jobId, message);
       throw error;
     }
@@ -106,30 +113,80 @@ export class SummaryPipeline {
    */
   private async validateInputs(job: Job): Promise<void> {
     await this.store.updateStatus(job.id, 'validating', 'Validating input files', 0);
+    await this.store.addLog(job.id, 'info', '🔍 Validating input files...');
 
     // Check FFmpeg availability
     if (!this.ffmpeg.isAvailable()) {
       throw new Error('FFmpeg is not available. Please install FFmpeg and add it to PATH.');
     }
+    await this.store.addLog(job.id, 'success', '✓ FFmpeg is available');
 
     // Check for SRT files
     if (job.srtFiles.length === 0) {
       throw new Error('No SRT files uploaded');
     }
+    await this.store.addLog(job.id, 'info', `Found ${job.srtFiles.length} SRT files`);
 
-    // Check for video files
-    if (job.videoFiles.length === 0) {
-      throw new Error('No video files uploaded');
+    // Check for video files - either uploaded or from local directory
+    const hasUploadedVideos = job.videoFiles.length > 0;
+    const hasLocalVideoDir = !!job.config.videoDirectory;
+
+    if (!hasUploadedVideos && !hasLocalVideoDir) {
+      throw new Error('No video files: either upload videos or specify a videoDirectory');
     }
 
-    // Verify all files exist
-    for (const file of [...job.srtFiles, ...job.videoFiles]) {
+    // If using local video directory, scan for video files
+    if (hasLocalVideoDir && !hasUploadedVideos) {
+      await this.store.addLog(job.id, 'info', `Scanning video directory: ${job.config.videoDirectory}`);
+      await this.scanLocalVideoDirectory(job);
+    }
+
+    // Verify all SRT files exist
+    for (const file of job.srtFiles) {
       if (!fs.existsSync(file.path)) {
         throw new Error(`File not found: ${file.originalName}`);
       }
     }
 
+    // Verify video files exist (either uploaded or local)
+    const videoFiles = job.localVideoFiles ?? job.videoFiles;
+    for (const file of videoFiles) {
+      if (!fs.existsSync(file.path)) {
+        throw new Error(`Video file not found: ${file.path}`);
+      }
+    }
+
+    await this.store.addLog(job.id, 'success', '✓ All input files validated');
     await this.store.updateProgress(job.id, 'Input validation complete', 100);
+  }
+
+  /**
+   * Scans a local directory for video files and stores references in the job
+   */
+  private async scanLocalVideoDirectory(job: Job): Promise<void> {
+    const videoDir = job.config.videoDirectory!;
+    const videoExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+    
+    const files = fs.readdirSync(videoDir);
+    const videoFiles: Array<{ path: string; episodeId?: string }> = [];
+
+    for (const file of files) {
+      const ext = path.extname(file).toLowerCase();
+      if (videoExtensions.includes(ext)) {
+        const fullPath = path.join(videoDir, file);
+        const episodeId = extractEpisodeIdFromFilename(file) ?? undefined;
+        videoFiles.push({ path: fullPath, episodeId });
+      }
+    }
+
+    if (videoFiles.length === 0) {
+      throw new Error(`No video files found in directory: ${videoDir}`);
+    }
+
+    job.localVideoFiles = videoFiles;
+    await this.store.save(job);
+    
+    console.info(`Found ${videoFiles.length} video files in ${videoDir}`);
   }
 
   /**
@@ -137,9 +194,13 @@ export class SummaryPipeline {
    */
   private async parseSubtitles(job: Job): Promise<Map<string, EpisodeSubtitles>> {
     await this.store.updateStatus(job.id, 'parsing', 'Parsing subtitle files', 0);
+    await this.store.addLog(job.id, 'info', '📄 Parsing subtitle files...');
 
     const episodeSubtitles = new Map<string, EpisodeSubtitles>();
     const totalFiles = job.srtFiles.length;
+
+    // Get video files (prefer local, fallback to uploaded)
+    const videoFiles = this.getVideoFiles(job);
 
     for (let i = 0; i < job.srtFiles.length; i++) {
       const file = job.srtFiles[i];
@@ -157,16 +218,19 @@ export class SummaryPipeline {
       const entries = parseSrtFile(content, episodeId);
 
       // Find matching video file
-      const videoFile = this.findMatchingVideo(episodeId, job.videoFiles);
+      const videoFile = this.findMatchingVideoFromList(episodeId, videoFiles);
 
       episodeSubtitles.set(episodeId, {
         episodeId,
         episodeNumber: i + 1,
-        videoFileName: videoFile?.originalName,
+        videoFileName: videoFile ? path.basename(videoFile.path) : undefined,
         entries,
       });
+      
+      await this.store.addLog(job.id, 'info', `  Parsed ${file.originalName} (${entries.length} subtitles)`);
     }
 
+    await this.store.addLog(job.id, 'success', `✓ Parsed ${totalFiles} subtitle files`);
     return episodeSubtitles;
   }
 
@@ -182,6 +246,7 @@ export class SummaryPipeline {
     narrative?: string;
   }> {
     await this.store.updateStatus(job.id, 'analyzing', 'Analyzing season with AI', 0);
+    await this.store.addLog(job.id, 'info', `🤖 Analyzing with ${job.config.llmProvider.toUpperCase()}...`);
 
     const provider = createLLMProvider(job.config.llmProvider);
 
@@ -196,6 +261,8 @@ export class SummaryPipeline {
       long: config.targetDurationLong,
     });
 
+    await this.store.addLog(job.id, 'info', `  Target duration: ${targetMinutes} minutes`);
+
     const input: SummarizationInput = {
       subtitlesByEpisode,
       targetDurationMinutes: targetMinutes,
@@ -206,21 +273,26 @@ export class SummaryPipeline {
     };
 
     await this.store.updateProgress(job.id, 'Selecting key moments with AI', 30);
+    await this.store.addLog(job.id, 'info', '  Requesting key moments from AI...');
     const keyMomentsResult = await provider.selectKeyMoments(input);
+    await this.store.addLog(job.id, 'success', `  ✓ AI selected ${keyMomentsResult.moments.length} key moments`);
 
     let narrative: string | undefined;
 
     if (job.config.mode === 'B') {
       await this.store.updateProgress(job.id, 'Generating narrative with AI', 70);
+      await this.store.addLog(job.id, 'info', '  Generating narrative script...');
       const narrativeResult = await provider.generateNarrativeForSummary(
         keyMomentsResult.moments,
         job.config.language,
         { seriesName: job.config.seriesName, season: job.config.season }
       );
       narrative = narrativeResult.fullNarrative;
+      await this.store.addLog(job.id, 'success', '  ✓ Narrative generated');
     }
 
     await this.store.updateProgress(job.id, 'AI analysis complete', 100);
+    await this.store.addLog(job.id, 'success', '✓ AI analysis complete');
 
     return {
       moments: keyMomentsResult.moments,
@@ -234,16 +306,18 @@ export class SummaryPipeline {
    */
   private async generateClipSpecs(job: Job, moments: KeyMoment[]): Promise<ClipSpec[]> {
     await this.store.updateStatus(job.id, 'generating_clips', 'Generating clip list', 0);
+    await this.store.addLog(job.id, 'info', '🎬 Generating clip specifications...');
 
     const clips: ClipSpec[] = [];
+    const videoFiles = this.getVideoFiles(job);
 
     for (let i = 0; i < moments.length; i++) {
       const moment = moments[i];
       if (!moment) continue;
 
-      const videoFile = this.findMatchingVideo(moment.episodeId, job.videoFiles);
+      const videoFile = this.findMatchingVideoFromList(moment.episodeId, videoFiles);
       if (!videoFile) {
-        console.warn(`No video file found for episode ${moment.episodeId}`);
+        await this.store.addLog(job.id, 'warn', `  ⚠ No video file found for episode ${moment.episodeId}`);
         continue;
       }
 
@@ -268,6 +342,8 @@ export class SummaryPipeline {
     };
     await this.store.save(job);
 
+    const totalDuration = clips.reduce((sum, c) => sum + (c.endTime - c.startTime), 0);
+    await this.store.addLog(job.id, 'success', `✓ Generated ${clips.length} clips (total: ${Math.round(totalDuration / 60)} min)`);
     await this.store.updateProgress(job.id, `Generated ${clips.length} clips`, 100);
 
     return clips;
@@ -278,6 +354,7 @@ export class SummaryPipeline {
    */
   private async processVideo(job: Job, clips: ClipSpec[]): Promise<string> {
     await this.store.updateStatus(job.id, 'processing_video', 'Processing video clips', 0);
+    await this.store.addLog(job.id, 'info', '🎥 Processing video clips...');
 
     const outputDir = this.store.getOutputDir(job.id);
     const workDir = path.join(outputDir, 'temp');
@@ -289,6 +366,7 @@ export class SummaryPipeline {
       endTime: clip.endTime,
     }));
 
+    await this.store.addLog(job.id, 'info', `  Extracting ${videoClips.length} clips...`);
     await processClipsToVideo(videoClips, outputPath, workDir, this.ffmpeg);
 
     // Clean up temp directory
@@ -296,6 +374,7 @@ export class SummaryPipeline {
       fs.rmSync(workDir, { recursive: true });
     }
 
+    await this.store.addLog(job.id, 'success', '✓ Video processing complete');
     await this.store.updateProgress(job.id, 'Video processing complete', 100);
 
     return outputPath;
@@ -310,6 +389,7 @@ export class SummaryPipeline {
     episodeSubtitles: Map<string, EpisodeSubtitles>
   ): Promise<string> {
     await this.store.updateStatus(job.id, 'generating_srt', 'Generating subtitles', 0);
+    await this.store.addLog(job.id, 'info', '📝 Generating subtitles...');
 
     const outputDir = this.store.getOutputDir(job.id);
     const srtPath = path.join(outputDir, `${job.config.seriesName}_S${job.config.season}_summary.srt`);
@@ -335,6 +415,7 @@ export class SummaryPipeline {
     const srtContent = generateSrtContent(remapped);
     fs.writeFileSync(srtPath, srtContent, 'utf-8');
 
+    await this.store.addLog(job.id, 'success', `✓ Subtitles generated (${remapped.length} entries)`);
     await this.store.updateProgress(job.id, 'Subtitles generated', 100);
 
     return srtPath;
@@ -448,6 +529,51 @@ export class SummaryPipeline {
     if (episodeNum) {
       return videoFiles.find((v) => {
         const match = v.originalName.match(/E(\d+)/i);
+        return match?.[1] === episodeNum;
+      });
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Gets the list of video files to use (local or uploaded)
+   */
+  private getVideoFiles(job: Job): Array<{ path: string; episodeId?: string }> {
+    // Prefer local video files over uploaded ones
+    if (job.localVideoFiles && job.localVideoFiles.length > 0) {
+      return job.localVideoFiles;
+    }
+    // Fall back to uploaded video files
+    return job.videoFiles.map(f => ({ path: f.path, episodeId: f.episodeId }));
+  }
+
+  /**
+   * Finds a video file matching an episode ID from a generic list
+   */
+  private findMatchingVideoFromList(
+    episodeId: string,
+    videoFiles: Array<{ path: string; episodeId?: string }>
+  ): { path: string; episodeId?: string } | undefined {
+    // First try to match by explicit episodeId
+    const explicitMatch = videoFiles.find((v) => v.episodeId === episodeId);
+    if (explicitMatch) return explicitMatch;
+
+    // Try to extract episode ID from filename
+    for (const video of videoFiles) {
+      const fileName = path.basename(video.path);
+      const videoEpisodeId = extractEpisodeIdFromFilename(fileName);
+      if (videoEpisodeId === episodeId) {
+        return video;
+      }
+    }
+
+    // Try partial match
+    const episodeNum = episodeId.match(/E(\d+)/)?.[1];
+    if (episodeNum) {
+      return videoFiles.find((v) => {
+        const fileName = path.basename(v.path);
+        const match = fileName.match(/E(\d+)/i);
         return match?.[1] === episodeNum;
       });
     }

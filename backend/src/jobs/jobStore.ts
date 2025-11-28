@@ -42,6 +42,7 @@ export class JobStore {
         currentStep: 'Waiting to start',
         completedStages: [],
         errors: [],
+        logs: [],
       },
       srtFiles: [],
       videoFiles: [],
@@ -165,6 +166,41 @@ export class JobStore {
     job.progress.errors.push(error);
     job.error = error;
     job.completedAt = new Date();
+    
+    await this.addLog(jobId, 'error', `Pipeline failed: ${error}`);
+    await this.save(job);
+  }
+
+  /**
+   * Adds a log entry to a job
+   */
+  async addLog(
+    jobId: string,
+    level: 'info' | 'warn' | 'error' | 'success',
+    message: string,
+    stage?: JobStatus
+  ): Promise<void> {
+    const job = await this.get(jobId);
+    if (!job) {
+      return; // Silently fail for logging
+    }
+
+    // Initialize logs if not present (for backwards compatibility)
+    if (!job.progress.logs) {
+      job.progress.logs = [];
+    }
+
+    job.progress.logs.push({
+      timestamp: new Date(),
+      level,
+      message,
+      stage: stage ?? job.status,
+    });
+
+    // Keep only last 100 logs to prevent bloat
+    if (job.progress.logs.length > 100) {
+      job.progress.logs = job.progress.logs.slice(-100);
+    }
 
     await this.save(job);
   }

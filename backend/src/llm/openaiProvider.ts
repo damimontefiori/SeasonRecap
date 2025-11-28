@@ -26,7 +26,7 @@ export class OpenAILLMProvider implements LLMProvider {
       apiKey: config.apiKey,
       baseURL: config.apiBase,
     });
-    this.model = config.model ?? 'gpt-4o';
+    this.model = config.model ?? 'gpt-5.1';
     this.maxRetries = config.maxRetries ?? 3;
   }
 
@@ -85,7 +85,7 @@ export class OpenAILLMProvider implements LLMProvider {
             },
           ],
           temperature: 0.7,
-          max_tokens: 8000,
+          max_completion_tokens: 50000,
           response_format: { type: 'json_object' },
         });
 

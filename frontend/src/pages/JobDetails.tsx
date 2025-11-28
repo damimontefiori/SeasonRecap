@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getJob, startJob, getDownloadUrl, Job, JobStatus } from '../api';
+import { getJob, startJob, getDownloadUrl, Job, JobStatus, KeyMoment } from '../api';
 import './JobDetails.css';
 
 const STAGE_LABELS: Record<JobStatus, string> = {
@@ -39,12 +39,27 @@ function getStageIcon(
   return '⏹️';
 }
 
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  if (mins === 0) return `${secs}s`;
+  return `${mins}m ${secs}s`;
+}
+
 export function JobDetails() {
   const { id } = useParams<{ id: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [overallProgress, setOverallProgress] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAllMoments, setShowAllMoments] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
   const fetchJob = async () => {
     if (!id) return;
@@ -67,13 +82,20 @@ export function JobDetails() {
 
     // Poll for updates if job is in progress
     const interval = setInterval(() => {
-      if (job && job.status !== 'completed' && job.status !== 'failed') {
+      if (job && job.status !== 'completed' && job.status !== 'failed' && job.status !== 'pending') {
         fetchJob();
       }
-    }, 3000);
+    }, 2000); // Poll every 2 seconds for more responsive updates
 
     return () => clearInterval(interval);
   }, [id, job?.status]);
+
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [job?.progress.logs]);
 
   const handleStart = async () => {
     if (!id) return;
@@ -102,9 +124,14 @@ export function JobDetails() {
     );
   }
 
+  const isProcessing = job.status !== 'pending' && job.status !== 'completed' && job.status !== 'failed';
   const relevantStages = job.config.mode === 'A'
     ? STAGE_ORDER.filter((s) => s !== 'generating_tts' && s !== 'mixing_audio')
     : STAGE_ORDER;
+
+  // Calculate summary stats
+  const totalClipDuration = job.keyMoments?.reduce((sum, m) => sum + (m.endTime - m.startTime), 0) ?? 0;
+  const episodesWithClips = new Set(job.keyMoments?.map(m => m.episodeId) ?? []).size;
 
   return (
     <div className="job-details-page">
@@ -118,9 +145,26 @@ export function JobDetails() {
           </h1>
         </div>
         <span className={`status-badge status-${job.status === 'completed' ? 'completed' : job.status === 'failed' ? 'failed' : job.status === 'pending' ? 'pending' : 'processing'}`}>
+          {isProcessing && <span className="status-pulse"></span>}
           {STAGE_LABELS[job.status]}
         </span>
       </div>
+
+      {/* Processing Banner */}
+      {isProcessing && (
+        <div className="processing-banner">
+          <div className="processing-icon">
+            <div className="spinner"></div>
+          </div>
+          <div className="processing-info">
+            <h3>🔄 Processing in background...</h3>
+            <p>
+              The video is being generated. This may take several minutes depending on the number of clips.
+              You can leave this page and come back later - processing will continue in the background.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Job Info */}
       <div className="card job-info">
@@ -151,8 +195,10 @@ export function JobDetails() {
             <span className="info-value">{job.srtFiles?.length ?? 0}</span>
           </div>
           <div className="info-item">
-            <span className="info-label">Video Files</span>
-            <span className="info-value">{job.videoFiles?.length ?? 0}</span>
+            <span className="info-label">Video Source</span>
+            <span className="info-value">
+              {job.config.videoDirectory ? 'Local directory' : `${job.videoFiles?.length ?? 0} files`}
+            </span>
           </div>
         </div>
       </div>
@@ -166,7 +212,7 @@ export function JobDetails() {
           <div className="overall-progress">
             <div className="progress-bar-container large">
               <div
-                className="progress-bar"
+                className={`progress-bar ${isProcessing ? 'animated' : ''}`}
                 style={{ width: `${overallProgress}%` }}
               />
             </div>
@@ -174,7 +220,10 @@ export function JobDetails() {
           </div>
 
           {/* Current step */}
-          <p className="current-step">{job.progress.currentStep}</p>
+          <p className="current-step">
+            {isProcessing && <span className="pulse-dot"></span>}
+            {job.progress.currentStep}
+          </p>
 
           {/* Stage list */}
           <div className="stages-list">
@@ -191,6 +240,78 @@ export function JobDetails() {
                   <span className="stage-progress">{job.progress.stageProgress}%</span>
                 )}
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Summary Stats - Show when we have key moments */}
+      {job.keyMoments && job.keyMoments.length > 0 && (
+        <div className="card summary-stats">
+          <h2>📊 Summary Statistics</h2>
+          <div className="stats-grid">
+            <div className="stat-item">
+              <span className="stat-value">{job.keyMoments.length}</span>
+              <span className="stat-label">Key Moments</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value">{formatDuration(totalClipDuration)}</span>
+              <span className="stat-label">Total Duration</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value">{episodesWithClips}</span>
+              <span className="stat-label">Episodes Covered</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-value">{formatDuration(totalClipDuration / job.keyMoments.length)}</span>
+              <span className="stat-label">Avg Clip Length</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Narrative Outline - Show for completed jobs */}
+      {job.narrativeOutline && (
+        <div className="card narrative-section">
+          <h2>📖 Narrative Structure</h2>
+          <div className="narrative-grid">
+            <div className="narrative-block">
+              <h4>🎬 Introduction</h4>
+              <p>{job.narrativeOutline.intro}</p>
+            </div>
+            <div className="narrative-block">
+              <h4>📈 Development</h4>
+              <p>{job.narrativeOutline.development}</p>
+            </div>
+            <div className="narrative-block">
+              <h4>⚡ Climax</h4>
+              <p>{job.narrativeOutline.climax}</p>
+            </div>
+            <div className="narrative-block">
+              <h4>🎭 Resolution</h4>
+              <p>{job.narrativeOutline.resolution}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Key Moments / Scenes */}
+      {job.keyMoments && job.keyMoments.length > 0 && (
+        <div className="card moments-section">
+          <div className="moments-header">
+            <h2>🎬 Selected Scenes ({job.keyMoments.length})</h2>
+            {job.keyMoments.length > 5 && (
+              <button 
+                className="btn btn-sm btn-secondary"
+                onClick={() => setShowAllMoments(!showAllMoments)}
+              >
+                {showAllMoments ? 'Show Less' : `Show All (${job.keyMoments.length})`}
+              </button>
+            )}
+          </div>
+          <div className="moments-list">
+            {(showAllMoments ? job.keyMoments : job.keyMoments.slice(0, 5)).map((moment, index) => (
+              <MomentCard key={index} moment={moment} index={index} />
             ))}
           </div>
         </div>
@@ -215,10 +336,31 @@ export function JobDetails() {
         </div>
       )}
 
+      {/* Logs section */}
+      {job.progress.logs && job.progress.logs.length > 0 && (
+        <div className="card logs-section">
+          <h2>📋 Execution Log ({job.progress.logs.length} entries)</h2>
+          <div className="logs-container">
+            {job.progress.logs.map((log, index) => (
+              <div key={index} className={`log-entry log-${log.level}`}>
+                <span className="log-time">
+                  {new Date(log.timestamp).toLocaleTimeString()}
+                </span>
+                <span className="log-level-icon">
+                  {log.level === 'success' ? '✅' : log.level === 'error' ? '❌' : log.level === 'warn' ? '⚠️' : 'ℹ️'}
+                </span>
+                <span className="log-message">{log.message}</span>
+              </div>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
+      )}
+
       {/* Downloads */}
       {job.status === 'completed' && job.outputs && (
         <div className="card downloads-section">
-          <h2>Downloads</h2>
+          <h2>⬇️ Downloads</h2>
           <div className="downloads-grid">
             {job.outputs.videoPath && (
               <a
@@ -267,6 +409,50 @@ export function JobDetails() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Component for displaying a single moment/scene
+function MomentCard({ moment, index }: { moment: KeyMoment; index: number }) {
+  const duration = moment.endTime - moment.startTime;
+  
+  const getRoleColor = (role: string): string => {
+    switch (role.toLowerCase()) {
+      case 'intro':
+      case 'introduction': return '#3b82f6';
+      case 'development': return '#8b5cf6';
+      case 'climax': return '#ef4444';
+      case 'resolution': return '#22c55e';
+      case 'key_scene': return '#f59e0b';
+      default: return '#6b7280';
+    }
+  };
+
+  return (
+    <div className="moment-card">
+      <div className="moment-header">
+        <span className="moment-number">#{index + 1}</span>
+        <span className="moment-episode">{moment.episodeId}</span>
+        <span className="moment-time">
+          {formatTime(moment.startTime)} - {formatTime(moment.endTime)}
+        </span>
+        <span className="moment-duration">{formatDuration(duration)}</span>
+      </div>
+      <div className="moment-body">
+        <p className="moment-description">{moment.description || moment.justification}</p>
+        <div className="moment-meta">
+          <span 
+            className="moment-role" 
+            style={{ backgroundColor: getRoleColor(moment.narrativeRole) }}
+          >
+            {moment.narrativeRole.replace('_', ' ')}
+          </span>
+          <span className="moment-importance">
+            {'⭐'.repeat(Math.min(moment.importance, 5))}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

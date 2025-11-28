@@ -44,7 +44,7 @@ router.post(
       return;
     }
 
-    const { seriesName, season, language, mode, targetLength, llmProvider } = body.config;
+    const { seriesName, season, language, mode, targetLength, llmProvider, videoDirectory } = body.config;
 
     if (!seriesName || !season || !language || !mode || !targetLength || !llmProvider) {
       res.status(400).json({
@@ -62,6 +62,18 @@ router.post(
     if (!['openai', 'anthropic'].includes(llmProvider)) {
       res.status(400).json({ error: 'llmProvider must be openai or anthropic' });
       return;
+    }
+
+    // Validate videoDirectory if provided
+    if (videoDirectory) {
+      if (!fs.existsSync(videoDirectory)) {
+        res.status(400).json({ error: `Video directory does not exist: ${videoDirectory}` });
+        return;
+      }
+      if (!fs.statSync(videoDirectory).isDirectory()) {
+        res.status(400).json({ error: `Path is not a directory: ${videoDirectory}` });
+        return;
+      }
     }
 
     const job = await jobStore.create(body);

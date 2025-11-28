@@ -17,6 +17,16 @@ export type JobStatus =
   | 'failed';
 
 /**
+ * Log entry for tracking job execution
+ */
+export interface LogEntry {
+  timestamp: Date;
+  level: 'info' | 'warn' | 'error' | 'success';
+  message: string;
+  stage?: JobStatus;
+}
+
+/**
  * Detailed progress information for a job
  */
 export interface JobProgress {
@@ -26,6 +36,7 @@ export interface JobProgress {
   startedAt?: Date;
   completedStages: JobStatus[];
   errors: string[];
+  logs: LogEntry[];
 }
 
 /**
@@ -38,6 +49,8 @@ export interface JobConfig {
   mode: SummaryMode;
   targetLength: TargetLength | number; // 'short' | 'medium' | 'long' or minutes
   llmProvider: LLMProviderType;
+  /** Local directory path where video files are located */
+  videoDirectory?: string;
 }
 
 /**
@@ -63,6 +76,8 @@ export interface Job {
   // Files
   srtFiles: UploadedFile[];
   videoFiles: UploadedFile[];
+  /** Video files found in the local videoDirectory */
+  localVideoFiles?: Array<{ path: string; episodeId?: string }>;
 
   // Processing results
   keyMoments?: KeyMoment[];

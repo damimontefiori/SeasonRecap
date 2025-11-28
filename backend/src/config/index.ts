@@ -1,8 +1,23 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load environment variables
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Load environment variables from root .env file
+// Try multiple possible locations
+const possibleEnvPaths = [
+  path.resolve(__dirname, '../../../.env'),  // From dist/config/ to root
+  path.resolve(__dirname, '../../.env'),     // From src/config/ to backend root (if .env is there)
+  path.resolve(process.cwd(), '.env'),       // From current working directory
+  path.resolve(process.cwd(), '../.env'),    // One level up from cwd
+];
+
+for (const envPath of possibleEnvPaths) {
+  const result = dotenv.config({ path: envPath });
+  if (!result.error) {
+    console.log(`Loaded .env from: ${envPath}`);
+    console.log(`OPENAI_API_KEY loaded: ${process.env.OPENAI_API_KEY ? 'Yes (' + process.env.OPENAI_API_KEY.substring(0, 10) + '...)' : 'NO - MISSING'}`);
+    break;
+  }
+}
 
 export interface Config {
   // Server
@@ -62,7 +77,7 @@ export function loadConfig(): Config {
     // OpenAI
     openaiApiKey: getEnvString('OPENAI_API_KEY'),
     openaiApiBase: getEnvString('OPENAI_API_BASE', 'https://api.openai.com/v1'),
-    openaiModel: getEnvString('OPENAI_MODEL', 'gpt-4o'),
+    openaiModel: getEnvString('OPENAI_MODEL', 'gpt-5.1'),
 
     // Anthropic
     anthropicApiKey: getEnvString('ANTHROPIC_API_KEY'),

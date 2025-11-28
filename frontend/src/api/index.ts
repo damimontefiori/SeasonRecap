@@ -31,6 +31,15 @@ export interface JobConfig {
   mode: SummaryMode;
   targetLength: TargetLength | number;
   llmProvider: LLMProvider;
+  /** Local directory path where video files are located (server-side path) */
+  videoDirectory?: string;
+}
+
+export interface LogEntry {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'success';
+  message: string;
+  stage?: JobStatus;
 }
 
 export interface JobProgress {
@@ -39,12 +48,30 @@ export interface JobProgress {
   currentStep: string;
   completedStages: JobStatus[];
   errors: string[];
+  logs?: LogEntry[];
 }
 
 export interface UploadedFile {
   name: string;
   episodeId?: string;
   size: number;
+}
+
+export interface KeyMoment {
+  episodeId: string;
+  startTime: number;
+  endTime: number;
+  justification: string;
+  narrativeRole: string;
+  description: string;
+  importance: number;
+}
+
+export interface NarrativeOutline {
+  intro: string;
+  development: string;
+  climax: string;
+  resolution: string;
 }
 
 export interface Job {
@@ -54,11 +81,15 @@ export interface Job {
   progress: JobProgress;
   srtFiles: UploadedFile[];
   videoFiles: UploadedFile[];
+  keyMoments?: KeyMoment[];
+  narrativeOutline?: NarrativeOutline;
+  narrative?: string;
   outputs?: {
     videoPath?: string;
     srtPath?: string;
     narrativeSrtPath?: string;
     audioPath?: string;
+    clipsJsonPath?: string;
   };
   createdAt: string;
   updatedAt: string;
