@@ -26,6 +26,15 @@ export function createLLMProvider(providerType: LLMProviderType): LLMProvider {
         maxRetries: config.llmMaxRetries,
       });
 
+    case 'anthropic-opus':
+      console.log(`Creating Anthropic Opus provider with model: ${config.anthropicOpusModel}`);
+      return new AnthropicLLMProvider({
+        type: 'anthropic',
+        apiKey: config.anthropicApiKey,
+        model: config.anthropicOpusModel,
+        maxRetries: config.llmMaxRetries,
+      });
+
     default:
       throw new Error(`Unknown LLM provider type: ${providerType as string}`);
   }
@@ -51,7 +60,7 @@ export function createLLMProviderFromConfig(providerConfig: LLMProviderConfig): 
 export async function testAllProviders(): Promise<Map<LLMProviderType, boolean>> {
   const results = new Map<LLMProviderType, boolean>();
 
-  const providers: LLMProviderType[] = ['openai', 'anthropic'];
+  const providers: LLMProviderType[] = ['openai', 'anthropic', 'anthropic-opus'];
 
   for (const providerType of providers) {
     try {

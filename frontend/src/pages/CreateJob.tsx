@@ -23,8 +23,17 @@ const LANGUAGES = [
   { code: 'ko-KR', label: 'Korean' },
 ];
 
-// Azure Speech TTS Voices - organized by style
+// TTS Voices - organized by provider and style
 const TTS_VOICES = [
+  // ===== PREMIUM: OpenAI Voices (Multilingual, ultra-realistic) =====
+  { code: 'openai:nova', label: '✨ Nova (OpenAI) - Femenina, dinámica y enérgica', premium: true, recommended: true },
+  { code: 'openai:alloy', label: '✨ Alloy (OpenAI) - Versátil y neutra', premium: true },
+  { code: 'openai:echo', label: '✨ Echo (OpenAI) - Masculina, suave y resonante', premium: true },
+  { code: 'openai:onyx', label: '✨ Onyx (OpenAI) - Masculina, profunda y seria', premium: true },
+  { code: 'openai:shimmer', label: '✨ Shimmer (OpenAI) - Femenina, clara y brillante', premium: true },
+  { code: 'openai:fable', label: '✨ Fable (OpenAI) - Expresiva y dramática', premium: true },
+  
+  // ===== Azure Neural Voices =====
   // Recommended for dubbing/narration (Latin American Spanish)
   { code: 'es-MX-JorgeNeural', label: '🎬 Jorge (México) - Voz de doblaje profesional', recommended: true },
   { code: 'es-MX-DaliaNeural', label: '🎬 Dalia (México) - Voz femenina profesional', recommended: true },
@@ -47,6 +56,75 @@ const TTS_VOICES = [
   { code: 'en-GB-SoniaNeural', label: '🇬🇧 Sonia (UK) - Female narrator' },
 ];
 
+/**
+ * Voice preview button component
+ */
+function VoicePreviewButton({ voice }: { voice: string }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const audioRef = useState<HTMLAudioElement | null>(null);
+
+  const handlePreview = async () => {
+    if (isPlaying && audioRef[0]) {
+      audioRef[0].pause();
+      audioRef[0].currentTime = 0;
+      setIsPlaying(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const audio = new Audio(`/api/health/tts-preview/${voice}`);
+      audioRef[0] = audio;
+      
+      audio.onended = () => {
+        setIsPlaying(false);
+      };
+      
+      audio.onerror = () => {
+        setError('Failed to play audio');
+        setIsPlaying(false);
+        setIsLoading(false);
+      };
+
+      audio.oncanplaythrough = () => {
+        setIsLoading(false);
+        setIsPlaying(true);
+        audio.play();
+      };
+
+      audio.load();
+    } catch (err) {
+      setError('Failed to load preview');
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="voice-preview-container">
+      <button
+        type="button"
+        className={`voice-preview-btn ${isPlaying ? 'playing' : ''} ${isLoading ? 'loading' : ''}`}
+        onClick={handlePreview}
+        disabled={isLoading}
+        title={isPlaying ? 'Stop preview' : 'Preview this voice'}
+      >
+        {isLoading ? (
+          <>⏳ Loading...</>
+        ) : isPlaying ? (
+          <>⏹️ Stop</>
+        ) : (
+          <>▶️ Preview Voice</>
+        )}
+      </button>
+      {error && <span className="voice-preview-error">{error}</span>}
+    </div>
+  );
+}
+
 export function CreateJob() {
   const navigate = useNavigate();
   const [step, setStep] = useState<'config' | 'upload' | 'review'>('config');
@@ -62,7 +140,7 @@ export function CreateJob() {
   const [targetLength, setTargetLength] = useState<TargetLength>('medium');
   const [llmProvider, setLlmProvider] = useState<LLMProvider>('openai');
   const [videoDirectory, setVideoDirectory] = useState('');
-  const [ttsVoice, setTtsVoice] = useState('es-MX-JorgeNeural'); // Default: Mexican narrator voice
+  const [ttsVoice, setTtsVoice] = useState('openai:nova'); // Default: Nova (OpenAI premium voice)
 
   // Files
   const [srtFiles, setSrtFiles] = useState<FileList | null>(null);
@@ -222,8 +300,9 @@ export function CreateJob() {
                 value={llmProvider}
                 onChange={(e) => setLlmProvider(e.target.value as LLMProvider)}
               >
-                <option value="openai">OpenAI (GPT-4)</option>
-                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai">OpenAI (GPT-5.1)</option>
+                <option value="anthropic">Anthropic (Claude Sonnet 4)</option>
+                <option value="anthropic-opus">Anthropic (Claude Opus 4.5) ⭐</option>
               </select>
             </div>
           </div>
@@ -260,37 +339,50 @@ export function CreateJob() {
                 onChange={(e) => setTtsVoice(e.target.value)}
                 className="voice-select"
               >
-                <optgroup label="⭐ Recommended for Latin American dubbing">
-                  {TTS_VOICES.filter(v => v.recommended).map((voice) => (
+                <optgroup label="✨ Premium - OpenAI (Ultra-realistas, multilingües)">
+                  {TTS_VOICES.filter(v => v.premium).map((voice) => (
                     <option key={voice.code} value={voice.code}>
                       {voice.label}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="🌎 Latin American Spanish">
-                  {TTS_VOICES.filter(v => !v.recommended && v.code.startsWith('es-') && !v.code.startsWith('es-ES')).map((voice) => (
+                <optgroup label="🎬 Azure Neural - Recomendadas para doblaje">
+                  {TTS_VOICES.filter(v => v.recommended && !v.premium).map((voice) => (
                     <option key={voice.code} value={voice.code}>
                       {voice.label}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="🇪🇸 Spanish (Spain)">
-                  {TTS_VOICES.filter(v => v.code.startsWith('es-ES')).map((voice) => (
+                <optgroup label="🌎 Azure Neural - Español Latinoamérica">
+                  {TTS_VOICES.filter(v => !v.recommended && !v.premium && v.code.startsWith('es-') && !v.code.startsWith('es-ES')).map((voice) => (
                     <option key={voice.code} value={voice.code}>
                       {voice.label}
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="🇺🇸🇬🇧 English">
-                  {TTS_VOICES.filter(v => v.code.startsWith('en-')).map((voice) => (
+                <optgroup label="🇪🇸 Azure Neural - Español (España)">
+                  {TTS_VOICES.filter(v => !v.premium && v.code.startsWith('es-ES')).map((voice) => (
+                    <option key={voice.code} value={voice.code}>
+                      {voice.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="🇺🇸🇬🇧 Azure Neural - English">
+                  {TTS_VOICES.filter(v => !v.premium && v.code.startsWith('en-')).map((voice) => (
                     <option key={voice.code} value={voice.code}>
                       {voice.label}
                     </option>
                   ))}
                 </optgroup>
               </select>
+              
+              {/* Voice preview button */}
+              <VoicePreviewButton voice={ttsVoice} />
+              
               <small className="form-hint">
-                This voice will be used to narrate the summary. Mexican voices are commonly used in Latin American dubbing.
+                {ttsVoice.startsWith('openai:') 
+                  ? '✨ Voces Premium OpenAI: Ultra-realistas con respiraciones naturales y entonación humana. Multilingües automáticamente.'
+                  : '🎬 Voces Azure Neural: Excelentes para doblaje profesional en español latinoamericano.'}
               </small>
             </div>
           )}
@@ -402,7 +494,11 @@ export function CreateJob() {
             </div>
             <div className="review-item">
               <span className="review-label">AI Provider:</span>
-              <span className="review-value">{llmProvider === 'openai' ? 'OpenAI' : 'Anthropic'}</span>
+              <span className="review-value">
+                {llmProvider === 'openai' ? 'OpenAI (GPT-5.1)' : 
+                 llmProvider === 'anthropic-opus' ? 'Anthropic (Claude Opus 4.5)' : 
+                 'Anthropic (Claude Sonnet 4)'}
+              </span>
             </div>
             <div className="review-item">
               <span className="review-label">SRT Files:</span>

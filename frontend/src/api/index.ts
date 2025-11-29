@@ -10,7 +10,7 @@ const api = axios.create({
 // Types
 export type SummaryMode = 'A' | 'B';
 export type TargetLength = 'short' | 'medium' | 'long';
-export type LLMProvider = 'openai' | 'anthropic';
+export type LLMProvider = 'openai' | 'anthropic' | 'anthropic-opus';
 export type JobStatus =
   | 'pending'
   | 'validating'

@@ -10,7 +10,7 @@ import {
 } from '../subtitles/subtitleUtils';
 import { createLLMProvider, KeyMoment, SummarizationInput } from '../llm';
 import { FFmpegProcessor, processClipsToVideo, VideoClip } from '../video';
-import { AzureSpeechSynthesizer } from '../tts';
+import { AzureSpeechSynthesizer, OpenAISpeechSynthesizer, OpenAIVoice } from '../tts';
 import { config } from '../config';
 
 /**
@@ -430,13 +430,22 @@ export class SummaryPipeline {
     const outputDir = this.store.getOutputDir(job.id);
     const audioPath = path.join(outputDir, 'narrative.mp3');
 
-    // Use voice from job config if specified, otherwise default from .env
-    const synthesizer = new AzureSpeechSynthesizer(
-      job.config.ttsVoice ? { voice: job.config.ttsVoice } : undefined
-    );
+    const ttsVoice = job.config.ttsVoice || 'openai:nova';
     
-    this.store.addLog(job.id, 'info', `Using TTS voice: ${job.config.ttsVoice || 'default from config'}`, 'generating_tts');
-    await synthesizer.synthesizeToFile(narrative, audioPath);
+    // Check if using OpenAI premium voices
+    if (ttsVoice.startsWith('openai:')) {
+      const voice = ttsVoice.replace('openai:', '') as OpenAIVoice;
+      this.store.addLog(job.id, 'info', `Using OpenAI Premium TTS voice: ${voice}`, 'generating_tts');
+      
+      const synthesizer = new OpenAISpeechSynthesizer({ voice });
+      await synthesizer.synthesizeToFile(narrative, audioPath);
+    } else {
+      // Azure Neural voices
+      this.store.addLog(job.id, 'info', `Using Azure Neural TTS voice: ${ttsVoice}`, 'generating_tts');
+      
+      const synthesizer = new AzureSpeechSynthesizer({ voice: ttsVoice });
+      await synthesizer.synthesizeToFile(narrative, audioPath);
+    }
 
     await this.store.updateProgress(job.id, 'Voiceover generated', 100);
 

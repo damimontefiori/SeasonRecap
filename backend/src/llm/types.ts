@@ -3,7 +3,7 @@ import { SubtitleEntry, EpisodeSubtitles } from '../subtitles/types';
 /**
  * Supported LLM provider types
  */
-export type LLMProviderType = 'openai' | 'anthropic';
+export type LLMProviderType = 'openai' | 'anthropic' | 'anthropic-opus';
 
 /**
  * Configuration for an LLM provider

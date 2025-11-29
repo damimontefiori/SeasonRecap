@@ -32,6 +32,7 @@ export interface Config {
   // Anthropic
   anthropicApiKey: string;
   anthropicModel: string;
+  anthropicOpusModel: string;
 
   // Azure Speech
   azureSpeechKey: string;
@@ -82,6 +83,7 @@ export function loadConfig(): Config {
     // Anthropic
     anthropicApiKey: getEnvString('ANTHROPIC_API_KEY'),
     anthropicModel: getEnvString('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514'),
+    anthropicOpusModel: getEnvString('ANTHROPIC_OPUS_MODEL', 'claude-opus-4-20250514'),
 
     // Azure Speech
     azureSpeechKey: getEnvString('AZURE_SPEECH_KEY'),
